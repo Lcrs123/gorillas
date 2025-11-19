@@ -27,9 +27,15 @@
 
         canvas {
             display: block;
-            background-color: #0000AA; /* Classic QBasic Blue */
+            background-color: #0000AA;
             border: 4px solid #FFF;
+            /* Mobile Responsive Fixes */
+            width: 100%;
+            height: auto;
+            max-width: 800px;
+            aspect-ratio: 4/3;
         }
+
 
         /* UI Overlay */
         #ui-layer {
@@ -219,10 +225,9 @@
 
 <script>
 /**
- * GORILLAS.JS - P2P EDITION
+ * GORILLAS.JS - P2P EDITION (MOBILE FIXED)
  */
 
-// --- Graphics & Audio Context ---
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const WIDTH = 800;
@@ -230,11 +235,11 @@ const HEIGHT = 600;
 
 // --- Game State ---
 let buildings = [];
-let player1 = {}; // Host
-let player2 = {}; // Guest
+let player1 = {}; 
+let player2 = {}; 
 let wind = 0;
-let currentPlayer = 1; // 1 or 2
-let myPlayerNum = 0; // Am I 1 or 2?
+let currentPlayer = 1;
+let myPlayerNum = 0;
 let isAnimating = false;
 let animationId;
 
@@ -258,10 +263,7 @@ const windDisplay = document.getElementById('wind-display');
 const statusText = document.getElementById('game-status');
 const turnLabel = document.getElementById('turn-label');
 
-// --- Constants ---
 const BUILDING_COLORS = ['#AA0000', '#00AAAA', '#00AA00', '#AAAAAA'];
-const GORILLA_WIDTH = 30;
-const GORILLA_HEIGHT = 30;
 const EXPLOSION_RADIUS = 30;
 
 // ==========================================
@@ -269,11 +271,10 @@ const EXPLOSION_RADIUS = 30;
 // ==========================================
 
 function initPeer() {
-    // Create a Peer object (auto-generates ID)
     peer = new Peer();
     
     peer.on('open', (id) => {
-        console.log('My Peer ID:', id);
+        console.log('My ID:', id);
         if(isHost) {
             loadingText.innerText = "Waiting for Opponent...";
             myIdDisplay.value = id;
@@ -282,18 +283,14 @@ function initPeer() {
     });
 
     peer.on('connection', (c) => {
-        // Host receives connection
         if(isHost) {
             conn = c;
-            setupConnection();
-            console.log("Opponent Connected!");
-            startGameAsHost();
+            console.log("Opponent connecting...");
+            setupHostConnection(); 
         }
     });
 
-    peer.on('error', (err) => {
-        alert("Network Error: " + err.type);
-    });
+    peer.on('error', (err) => alert("Error: " + err.type));
 }
 
 function createGame() {
@@ -306,24 +303,45 @@ function createGame() {
 
 function joinGame() {
     const hostId = document.getElementById('join-id').value.trim();
-    if(!hostId) return alert("Please enter a Game ID");
+    if(!hostId) return alert("Enter ID");
 
     isHost = false;
     myPlayerNum = 2;
     initialMenu.style.display = 'none';
-    loadingText.innerText = "Connecting to Host...";
+    loadingText.innerText = "Connecting...";
     loadingMenu.style.display = 'block';
     
     peer = new Peer();
     peer.on('open', () => {
         conn = peer.connect(hostId);
-        setupConnection();
+        setupGuestConnection();
     });
 }
 
-function setupConnection() {
+// --- HOST SPECIFIC CONNECTION SETUP ---
+function setupHostConnection() {
     conn.on('open', () => {
-        console.log("Connected to peer");
+        console.log("Connection Open. Waiting for Guest READY signal...");
+    });
+
+    conn.on('data', (data) => {
+        // The Host waits for the Guest to say "READY" before sending the map
+        if (data.type === 'READY') {
+            console.log("Guest is ready. Sending Map...");
+            startGameAsHost(); 
+        } else {
+            handleNetworkMessage(data);
+        }
+    });
+}
+
+// --- GUEST SPECIFIC CONNECTION SETUP ---
+function setupGuestConnection() {
+    conn.on('open', () => {
+        console.log("Connected to Host. Sending READY signal...");
+        // CRITICAL FIX: Tell Host we are ready to receive data
+        conn.send({ type: 'READY' });
+        
         loadingMenu.style.display = 'none';
         lobbyScreen.style.display = 'none';
         uiLayer.style.display = 'flex';
@@ -332,47 +350,36 @@ function setupConnection() {
     conn.on('data', (data) => {
         handleNetworkMessage(data);
     });
-
-    conn.on('close', () => {
-        alert("Opponent disconnected");
-        location.reload();
-    });
+    
+    conn.on('close', () => alert("Host Disconnected"));
 }
 
 function sendData(data) {
-    if(conn && conn.open) {
-        conn.send(data);
-    }
+    if(conn && conn.open) conn.send(data);
 }
 
 function handleNetworkMessage(data) {
     switch(data.type) {
         case 'INIT_GAME':
-            // Guest receives initial map data
+            console.log("Map Received!");
             buildings = data.buildings;
             player1 = data.p1;
             player2 = data.p2;
             wind = data.wind;
             currentPlayer = 1;
+            lobbyScreen.style.display = 'none'; // Ensure lobby is gone
+            uiLayer.style.display = 'flex';     // Ensure UI is visible
             draw();
             updateUI();
             break;
-            
-        case 'FIRE':
-            // Receive shot data
-            startThrow(data.angle, data.velocity, false); // false = not my shot
-            break;
-
-        case 'SYNC_TURN':
-            // Sync state after a turn
+        case 'FIRE': startThrow(data.angle, data.velocity, false); break;
+        case 'SYNC_TURN': 
             currentPlayer = data.nextPlayer;
             wind = data.newWind;
             updateUI();
             break;
-
         case 'GAME_OVER':
-            // Sync destruction and winner
-            buildings = data.buildings; // Sync building damage
+            buildings = data.buildings;
             draw();
             declareWinner(data.winner);
             break;
@@ -384,13 +391,11 @@ function handleNetworkMessage(data) {
 // ==========================================
 
 function startGameAsHost() {
-    // Only Host generates the map
     generateSkyline();
     placeGorillas();
     wind = (Math.floor(Math.random() * 200) - 100);
     currentPlayer = 1;
 
-    // Send data to Guest
     sendData({
         type: 'INIT_GAME',
         buildings: buildings,
@@ -401,16 +406,13 @@ function startGameAsHost() {
 
     lobbyScreen.style.display = 'none';
     uiLayer.style.display = 'flex';
-    
     draw();
     updateUI();
 }
 
 function resetGame() {
     resultOverlay.style.display = 'none';
-    if(isHost) {
-        startGameAsHost();
-    }
+    if(isHost) startGameAsHost();
 }
 
 function generateSkyline() {
@@ -420,15 +422,9 @@ function generateSkyline() {
         let w = Math.floor(Math.random() * 40) + 40; 
         let h = Math.floor(Math.random() * 300) + 100; 
         if (currentX + w > WIDTH) w = WIDTH - currentX;
-        
-        let color = BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)];
-        
         buildings.push({
-            x: currentX,
-            y: HEIGHT - h,
-            w: w,
-            h: h,
-            color: color,
+            x: currentX, y: HEIGHT - h, w: w, h: h,
+            color: BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)],
             windows: generateWindows(w, h)
         });
         currentX += w;
@@ -448,7 +444,6 @@ function generateWindows(w, h) {
 function placeGorillas() {
     const b1 = buildings[1];
     player1 = { x: b1.x + b1.w/2 - 15, y: b1.y - 30, w: 30, h: 30, color: '#55FFFF' };
-
     const b2 = buildings[buildings.length - 2];
     player2 = { x: b2.x + b2.w/2 - 15, y: b2.y - 30, w: 30, h: 30, color: '#FF55FF' };
 }
@@ -458,11 +453,12 @@ function placeGorillas() {
 // ==========================================
 
 function draw() {
+    // Safety check if map hasn't loaded yet
+    if(buildings.length === 0) return;
+
     ctx.fillStyle = '#0000AA'; 
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
     drawSun();
-
     buildings.forEach(b => {
         ctx.fillStyle = b.color;
         ctx.fillRect(b.x, b.y, b.w, b.h);
@@ -471,21 +467,15 @@ function draw() {
             if (b.y + win.y > b.y) ctx.fillRect(b.x + win.x, b.y + win.y, win.w, win.h);
         });
     });
-
     drawGorilla(player1);
     drawGorilla(player2);
 }
 
 function drawSun() {
     ctx.fillStyle = '#FFFF00';
-    ctx.beginPath();
-    ctx.arc(WIDTH/2, 40, 25, 0, Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle = '#000';
-    ctx.fillRect(WIDTH/2 - 15, 30, 30, 8);
-    ctx.beginPath();
-    ctx.arc(WIDTH/2, 45, 10, 0, Math.PI, false);
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(WIDTH/2, 40, 25, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.fillRect(WIDTH/2 - 15, 30, 30, 8);
+    ctx.beginPath(); ctx.arc(WIDTH/2, 45, 10, 0, Math.PI, false); ctx.stroke();
 }
 
 function drawGorilla(p) {
@@ -502,14 +492,9 @@ function drawGorilla(p) {
 
 fireBtn.addEventListener('click', () => {
     if (isAnimating || currentPlayer !== myPlayerNum) return;
-    
     const angle = parseFloat(angleInput.value);
     const vel = parseFloat(velocityInput.value);
-
-    // Send move to opponent
     sendData({ type: 'FIRE', angle: angle, velocity: vel });
-    
-    // Start local animation
     startThrow(angle, vel, true);
 });
 
@@ -520,72 +505,39 @@ function startThrow(angleDeg, velocity, isMyShot) {
     const origin = currentPlayer === 1 ? player1 : player2;
     let banX = origin.x + origin.w / 2;
     let banY = origin.y - 5;
-
-    // Calculate Physics Vector
-    let theta;
-    if (currentPlayer === 1) {
-        theta = angleDeg * (Math.PI / 180); 
-    } else {
-        // Mirror logic for P2 so 45deg aims towards P1
-        theta = (180 - angleDeg) * (Math.PI / 180); 
-    }
-
+    
+    let theta = (currentPlayer === 1) ? angleDeg * (Math.PI / 180) : (180 - angleDeg) * (Math.PI / 180);
     let vx = Math.cos(theta) * (velocity / 5); 
     let vy = -Math.sin(theta) * (velocity / 5); 
     let windForce = wind / 500; 
 
     function loop() {
-        vy += 0.15; // Gravity
-        vx += windForce; // Wind
-        banX += vx;
-        banY += vy;
+        vy += 0.15; vx += windForce;
+        banX += vx; banY += vy;
 
         draw();
         
         ctx.fillStyle = '#FFFF00';
-        ctx.beginPath();
-        ctx.arc(banX, banY, 4, 0, Math.PI*2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(banX, banY, 4, 0, Math.PI*2); ctx.fill();
 
-        // 1. Out of bounds
         if (banY > HEIGHT || banX < -100 || banX > WIDTH + 100) {
-            finishTurn();
-            return;
+            finishTurn(); return;
         }
 
-        // 2. Collision with Players (Only Host calculates "Hits" to ensure sync)
         if (isHost) {
-             if (checkHit(banX, banY, player1)) {
-                handleWin(2, banX, banY);
-                return;
-            }
-            if (checkHit(banX, banY, player2)) {
-                handleWin(1, banX, banY);
-                return;
-            }
-            // 3. Buildings
-            for (let b of buildings) {
+             if (checkHit(banX, banY, player1)) { handleWin(2, banX, banY); return; }
+             if (checkHit(banX, banY, player2)) { handleWin(1, banX, banY); return; }
+             for (let b of buildings) {
                 if (banX > b.x && banX < b.x + b.w && banY > b.y) {
-                    handleBuildingHit(b, banX, banY);
-                    return;
+                    handleBuildingHit(b, banX, banY); return;
                 }
             }
         } else {
-            // Guest just runs the loop blindly until it receives a SYNC or WIN message
-            // But for visual smoothness, we do simple collision stops locally too
-            // Actual state updates come from Host messages
             for (let b of buildings) {
-                if (banX > b.x && banX < b.x + b.w && banY > b.y) {
-                    cancelAnimationFrame(animationId); // Stop animation, wait for Host sync
-                    return; 
-                }
+                if (banX > b.x && banX < b.x + b.w && banY > b.y) { cancelAnimationFrame(animationId); return; }
             }
-             if (checkHit(banX, banY, player1) || checkHit(banX, banY, player2)) {
-                 cancelAnimationFrame(animationId); // Stop, wait for Host
-                 return;
-             }
+             if (checkHit(banX, banY, player1) || checkHit(banX, banY, player2)) { cancelAnimationFrame(animationId); return; }
         }
-
         animationId = requestAnimationFrame(loop);
     }
     loop();
@@ -595,86 +547,51 @@ function checkHit(bx, by, p) {
     return bx > p.x && bx < p.x + p.w && by > p.y && by < p.y + p.h;
 }
 
-// Only called by Host
 function handleBuildingHit(b, x, y) {
     cancelAnimationFrame(animationId);
-    
-    // Update building model
     let impactDepth = y + (EXPLOSION_RADIUS/2);
-    if (impactDepth > buildingYLimit(b)) {
-        b.y = impactDepth;
-        b.h = HEIGHT - b.y;
-    }
-    
+    if (impactDepth > b.y) { b.y = impactDepth; b.h = HEIGHT - b.y; }
     drawExplosion(x, y);
     finishTurn(); 
 }
 
-function buildingYLimit(b) { return b.y; }
-
-// Only called by Host
 function handleWin(winnerNum, x, y) {
     cancelAnimationFrame(animationId);
     drawExplosion(x, y);
-    
-    // Notify Guest
-    sendData({
-        type: 'GAME_OVER',
-        buildings: buildings,
-        winner: winnerNum
-    });
-    
+    sendData({ type: 'GAME_OVER', buildings: buildings, winner: winnerNum });
     declareWinner(winnerNum);
 }
 
 function drawExplosion(x, y) {
-    ctx.fillStyle = 'orange';
-    ctx.beginPath(); ctx.arc(x, y, EXPLOSION_RADIUS, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = 'red';
-    ctx.beginPath(); ctx.arc(x, y, EXPLOSION_RADIUS/2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'orange'; ctx.beginPath(); ctx.arc(x, y, EXPLOSION_RADIUS, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(x, y, EXPLOSION_RADIUS/2, 0, Math.PI*2); ctx.fill();
 }
 
 function finishTurn() {
     cancelAnimationFrame(animationId);
-    
     if(isHost) {
         let nextP = currentPlayer === 1 ? 2 : 1;
         let newWind = (Math.floor(Math.random() * 200) - 100);
-        
-        // Send new state to Guest
-        sendData({
-            type: 'SYNC_TURN',
-            nextPlayer: nextP,
-            newWind: newWind
-        });
-
-        // Update Local
+        sendData({ type: 'SYNC_TURN', nextPlayer: nextP, newWind: newWind });
         currentPlayer = nextP;
         wind = newWind;
         updateUI();
     }
     isAnimating = false;
-    draw(); // Clear banana
+    draw(); 
 }
 
 function declareWinner(num) {
     isAnimating = false;
     cancelAnimationFrame(animationId);
-    
     const txt = document.getElementById('winner-text');
     txt.innerText = `PLAYER ${num} WINS!`;
     txt.style.color = num === 1 ? '#55FFFF' : '#FF55FF';
-    
     resultOverlay.style.display = 'block';
-    
-    // Only host can click Rematch
-    const btn = resultOverlay.querySelector('button');
-    if(!isHost) btn.style.display = 'none';
-    else btn.style.display = 'inline-block';
+    resultOverlay.querySelector('button').style.display = isHost ? 'inline-block' : 'none';
 }
 
 function updateUI() {
-    // Status Text
     if(currentPlayer === myPlayerNum) {
         statusText.innerText = "YOUR TURN";
         statusText.style.color = "#0F0";
@@ -686,13 +603,11 @@ function updateUI() {
         fireBtn.disabled = true;
         turnLabel.innerText = "Waiting...";
     }
-
-    // Wind
     if (wind > 0) windDisplay.innerText = `→ ${Math.abs(wind)}`;
     else if (wind < 0) windDisplay.innerText = `← ${Math.abs(wind)}`;
     else windDisplay.innerText = `No Wind`;
 }
-
 </script>
+
 </body>
 </html>
