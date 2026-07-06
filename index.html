@@ -27,7 +27,7 @@
 
         canvas {
             display: block;
-            background-color: #0000AA;
+            background-color: #0000AA; /* Classic QBasic Blue */
             border: 4px solid #FFF;
             /* Mobile Responsive Fixes */
             width: 100%;
@@ -35,7 +35,6 @@
             max-width: 800px;
             aspect-ratio: 4/3;
         }
-
 
         /* UI Overlay */
         #ui-layer {
@@ -85,6 +84,21 @@
             width: 200px;
         }
         .lobby-btn:hover { background: #0000FF; }
+
+        .share-btn {
+            background: #00AA00;
+            color: white;
+            border: 2px solid white;
+            padding: 8px 15px;
+            margin-top: 5px;
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            width: 250px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .share-btn:hover { background: #00FF00; color: black; }
 
         input.lobby-input {
             background: #000;
@@ -149,8 +163,6 @@
             text-transform: uppercase;
         }
         button.fire-btn:disabled { background: #555; cursor: not-allowed; }
-
-        #status-msg { color: #FFFF55; margin-top: 10px; min-height: 1.2em;}
         
         .wind-arrow { font-size: 24px; margin-top: 5px; }
 
@@ -184,8 +196,10 @@
             </div>
             <div id="loading-menu" style="display:none;">
                 <p id="loading-text">Connecting to Server...</p>
-                <input type="text" id="my-id-display" class="lobby-input" readonly onclick="this.select()">
-                <p style="font-size: 12px; color: #AAA;">Share this ID with your friend</p>
+                <input type="text" id="my-id-display" class="lobby-input" readonly>
+                <br>
+                <button id="copy-share-btn" class="share-btn" onclick="copyIdToClipboard()">Copy Game ID</button>
+                <p style="font-size: 12px; color: #AAA; margin-top: 15px;">Send this ID to your friend</p>
             </div>
         </div>
     </div>
@@ -225,7 +239,7 @@
 
 <script>
 /**
- * GORILLAS.JS - P2P EDITION (MOBILE FIXED)
+ * GORILLAS.JS - P2P EDITION
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -254,6 +268,7 @@ const initialMenu = document.getElementById('initial-menu');
 const loadingMenu = document.getElementById('loading-menu');
 const loadingText = document.getElementById('loading-text');
 const myIdDisplay = document.getElementById('my-id-display');
+const copyShareBtn = document.getElementById('copy-share-btn');
 const uiLayer = document.getElementById('ui-layer');
 const resultOverlay = document.getElementById('result-overlay');
 const fireBtn = document.getElementById('fire-btn');
@@ -267,6 +282,30 @@ const BUILDING_COLORS = ['#AA0000', '#00AAAA', '#00AA00', '#AAAAAA'];
 const EXPLOSION_RADIUS = 30;
 
 // ==========================================
+// NEW UTILITY: COPY / SHARE FUNCTION
+// ==========================================
+function copyIdToClipboard() {
+    const idText = myIdDisplay.value;
+    if (!idText) return;
+
+    // Use clipboard API
+    navigator.clipboard.writeText(idText).then(() => {
+        copyShareBtn.innerText = "Copied! ✓";
+        copyShareBtn.style.background = "#55FF55";
+        copyShareBtn.style.color = "#000";
+        
+        // Reset button style after 2 seconds
+        setTimeout(() => {
+            copyShareBtn.innerText = "Copy Game ID";
+            copyShareBtn.style.background = "#00AA00";
+            copyShareBtn.style.color = "#FFF";
+        }, 2000);
+    }).catch(err => {
+        console.error("Failed to copy text: ", err);
+    });
+}
+
+// ==========================================
 // NETWORKING LOGIC
 // ==========================================
 
@@ -274,18 +313,17 @@ function initPeer() {
     peer = new Peer();
     
     peer.on('open', (id) => {
-        console.log('My ID:', id);
         if(isHost) {
             loadingText.innerText = "Waiting for Opponent...";
             myIdDisplay.value = id;
-            myIdDisplay.style.display = 'block';
+            myIdDisplay.style.display = 'inline-block';
+            copyShareBtn.style.display = 'inline-block';
         }
     });
 
     peer.on('connection', (c) => {
         if(isHost) {
             conn = c;
-            console.log("Opponent connecting...");
             setupHostConnection(); 
         }
     });
@@ -298,6 +336,8 @@ function createGame() {
     myPlayerNum = 1;
     initialMenu.style.display = 'none';
     loadingMenu.style.display = 'block';
+    myIdDisplay.style.display = 'none';
+    copyShareBtn.style.display = 'none';
     initPeer();
 }
 
@@ -310,6 +350,8 @@ function joinGame() {
     initialMenu.style.display = 'none';
     loadingText.innerText = "Connecting...";
     loadingMenu.style.display = 'block';
+    myIdDisplay.style.display = 'none';
+    copyShareBtn.style.display = 'none';
     
     peer = new Peer();
     peer.on('open', () => {
@@ -318,16 +360,13 @@ function joinGame() {
     });
 }
 
-// --- HOST SPECIFIC CONNECTION SETUP ---
 function setupHostConnection() {
     conn.on('open', () => {
-        console.log("Connection Open. Waiting for Guest READY signal...");
+        console.log("Waiting for Guest READY signal...");
     });
 
     conn.on('data', (data) => {
-        // The Host waits for the Guest to say "READY" before sending the map
         if (data.type === 'READY') {
-            console.log("Guest is ready. Sending Map...");
             startGameAsHost(); 
         } else {
             handleNetworkMessage(data);
@@ -335,13 +374,9 @@ function setupHostConnection() {
     });
 }
 
-// --- GUEST SPECIFIC CONNECTION SETUP ---
 function setupGuestConnection() {
     conn.on('open', () => {
-        console.log("Connected to Host. Sending READY signal...");
-        // CRITICAL FIX: Tell Host we are ready to receive data
         conn.send({ type: 'READY' });
-        
         loadingMenu.style.display = 'none';
         lobbyScreen.style.display = 'none';
         uiLayer.style.display = 'flex';
@@ -361,14 +396,13 @@ function sendData(data) {
 function handleNetworkMessage(data) {
     switch(data.type) {
         case 'INIT_GAME':
-            console.log("Map Received!");
             buildings = data.buildings;
             player1 = data.p1;
             player2 = data.p2;
             wind = data.wind;
             currentPlayer = 1;
-            lobbyScreen.style.display = 'none'; // Ensure lobby is gone
-            uiLayer.style.display = 'flex';     // Ensure UI is visible
+            lobbyScreen.style.display = 'none';
+            uiLayer.style.display = 'flex';
             draw();
             updateUI();
             break;
@@ -376,13 +410,9 @@ function handleNetworkMessage(data) {
         case 'SYNC_TURN': 
             currentPlayer = data.nextPlayer;
             wind = data.newWind;
-            // FIX 1: Sync the destroyed building data to the Guest
             if (data.buildings) buildings = data.buildings; 
-            
-            // FIX 2: Unlock the Guest's animation lock so they can input their next turn
             isAnimating = false; 
-            
-            draw(); // Redraw to clear the banana and show the damage
+            draw();
             updateUI();
             break;
         case 'GAME_OVER':
@@ -460,7 +490,6 @@ function placeGorillas() {
 // ==========================================
 
 function draw() {
-    // Safety check if map hasn't loaded yet
     if(buildings.length === 0) return;
 
     ctx.fillStyle = '#0000AA'; 
@@ -579,15 +608,12 @@ function finishTurn() {
     if(isHost) {
         let nextP = currentPlayer === 1 ? 2 : 1;
         let newWind = (Math.floor(Math.random() * 200) - 100);
-        
-        // FIX 3: Include the buildings array so the Guest knows what got destroyed
         sendData({ 
             type: 'SYNC_TURN', 
             nextPlayer: nextP, 
             newWind: newWind,
             buildings: buildings 
         });
-        
         currentPlayer = nextP;
         wind = newWind;
         updateUI();
@@ -623,6 +649,5 @@ function updateUI() {
     else windDisplay.innerText = `No Wind`;
 }
 </script>
-
 </body>
 </html>
