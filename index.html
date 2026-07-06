@@ -376,6 +376,13 @@ function handleNetworkMessage(data) {
         case 'SYNC_TURN': 
             currentPlayer = data.nextPlayer;
             wind = data.newWind;
+            // FIX 1: Sync the destroyed building data to the Guest
+            if (data.buildings) buildings = data.buildings; 
+            
+            // FIX 2: Unlock the Guest's animation lock so they can input their next turn
+            isAnimating = false; 
+            
+            draw(); // Redraw to clear the banana and show the damage
             updateUI();
             break;
         case 'GAME_OVER':
@@ -572,7 +579,15 @@ function finishTurn() {
     if(isHost) {
         let nextP = currentPlayer === 1 ? 2 : 1;
         let newWind = (Math.floor(Math.random() * 200) - 100);
-        sendData({ type: 'SYNC_TURN', nextPlayer: nextP, newWind: newWind });
+        
+        // FIX 3: Include the buildings array so the Guest knows what got destroyed
+        sendData({ 
+            type: 'SYNC_TURN', 
+            nextPlayer: nextP, 
+            newWind: newWind,
+            buildings: buildings 
+        });
+        
         currentPlayer = nextP;
         wind = newWind;
         updateUI();
